@@ -9,6 +9,15 @@ Inputs:
 Outputs:
   - CSV with per-point angles and a summary row
   - (optional) PNG slices visualizing vessel/tumor overlap per sampled plane
+
+PATCHED:
+  1. Minimum intersection-area threshold before computing an angle at all.
+  2. wrap_angle_deg now picks the two boundary points that are FARTHEST apart
+     (true chord extremes), instead of pts[0]/pts[-1] (scan-order artifact).
+  3. analyze_slice restricts scoring to the connected component nearest the
+     plane center (i.e. nearest the centerline point), ignoring unrelated
+     components caught in the same reslice window (relevant for branching
+     vessels like veins where multiple branches can appear in one plane).
 """
 
 import argparse
@@ -21,7 +30,7 @@ matplotlib.use("Agg")  # headless-safe
 import matplotlib.pyplot as plt
 from scipy import ndimage as ndi
 from scipy.ndimage import map_coordinates, center_of_mass, label
-from scipy.spatial.distance import euclidean
+from scipy.spatial.distance import euclidean, pdist, squareform
 from math import acos, degrees
 import networkx as nx
 
@@ -55,7 +64,7 @@ def skeleton_to_graph(skel: np.ndarray) -> nx.Graph:
         for dz in (-1,0,1):
             for dy in (-1,0,1):
                 for dx in (-1,0,1):
-                    if dx==dy==dz==0: 
+                    if dx==dy==dz==0:
                         continue
                     n = (z+dz, y+dy, x+dx)
                     j = idx.get(n, None)
@@ -130,11 +139,16 @@ def boundary_points(region_mask, tumor_mask):
                     pts.append((x,y))
     return pts
 
-def wrap_angle_deg(region_mask, tumor_mask):
+def wrap_angle_deg(region_mask, tumor_mask, idx=None):
     pts = boundary_points(region_mask, tumor_mask)
     if len(pts) < 2:
         return None
-    b, c = pts[0], pts[-1]
+
+    pts_arr = np.array(pts)
+    dist_matrix = squareform(pdist(pts_arr))
+    i, j = np.unravel_index(np.argmax(dist_matrix), dist_matrix.shape)
+    b, c = tuple(pts_arr[i]), tuple(pts_arr[j])
+
     centroid = center_of_mass(region_mask)
     dab = euclidean(centroid, b)
     dac = euclidean(centroid, c)
@@ -144,40 +158,95 @@ def wrap_angle_deg(region_mask, tumor_mask):
     cos_val = np.clip(cos_val, -1.0, 1.0)
     raw = degrees(acos(cos_val))
     centroid_in_tumor = tumor_mask[int(centroid[0]), int(centroid[1])] > 0
+    if idx is not None:
+        print(f"\nCentreline point {idx}")
+
+    print("Centroid:", centroid)
+    print("Boundary point 1 (farthest pair):", b)
+    print("Boundary point 2 (farthest pair):", c)
+    print("Boundary points:", len(pts))
+    print("Raw angle:", raw)
+    print("Centroid in tumour:", centroid_in_tumor)
     return 360 - raw if centroid_in_tumor else raw
 
-def analyze_slice(vessel2d, tumor2d, min_area=10, overlap_ratio=0.5):
+MIN_INTERSECTION_VOXELS = 10
+
+def analyze_slice(vessel2d, tumor2d, min_area=10, overlap_ratio=0.5,
+                   min_intersection_voxels=MIN_INTERSECTION_VOXELS,
+                   restrict_to_nearest_component=True, idx=None):
     if vessel2d.sum() == 0: return [("no_vessel", None)]
     if tumor2d.sum()  == 0: return [("no_tumor",  None)]
     labeled, n = label(vessel2d > 0)
+
+    if restrict_to_nearest_component and n > 1:
+        H, W = vessel2d.shape
+        center = np.array([H // 2, W // 2])
+        best_label, best_dist = None, np.inf
+        for k in range(1, n+1):
+            comp_coords = np.argwhere(labeled == k)
+            dists = np.linalg.norm(comp_coords - center, axis=1)
+            d = dists.min()
+            if d < best_dist:
+                best_dist = d
+                best_label = k
+        labeled = np.where(labeled == best_label, best_label, 0)
+        components_to_check = [best_label]
+    else:
+        components_to_check = range(1, n+1)
+
     results = []
-    for k in range(1, n+1):
+    for k in components_to_check:
         region = (labeled == k)
         area = int(region.sum())
         if area < min_area:
             continue
         inter = np.logical_and(region, tumor2d > 0)
         inter_area = int(inter.sum())
+        print(
+            f"Slice {k} (point {idx}): "
+            f"area={area}, "
+            f"intersection={inter_area}, "
+            f"ratio={inter_area/area:.3f}"
+        )
         if inter_area == 0:
             results.append(("no_contact", None)); continue
+
+        if inter_area < min_intersection_voxels:
+            print(f"  -> below min_intersection_voxels ({min_intersection_voxels}); treating as no_contact")
+            results.append(("no_contact_noise_filtered", None)); continue
+
         if inter_area == area:
             results.append(("complete_encasement", 360.0)); continue
         if inter_area > overlap_ratio * area:
-            ang = wrap_angle_deg(region, tumor2d)
+            ang = wrap_angle_deg(region, tumor2d, idx=idx)
             results.append(("partial_encasement", ang))
         else:
-            results.append(("minor_contact", None))
+            ang = wrap_angle_deg(region, tumor2d, idx=idx)
+            print(
+                f"Minor contact: "
+                f"area={area}, "
+                f"inter={inter_area}, "
+                f"angle={ang}"
+            )
+            results.append(("contact", ang))
     return results
 
 # ------------------------- main pipeline -------------------------
 
-def quantify_angles(vessel_path: Path, tumor_path: Path, centerline_path: Path,
-                    out_dir: Path, size=256, spacing=1.0,
-                    min_area=10, overlap_ratio=0.5, save_png=False):
+def quantify_angles(vessel_path=None, tumor_path=None, centerline_path=None,
+                    vessel_array=None, tumor_array=None, centerline_array=None,
+                    out_dir=None,
+                    size=256,
+                    spacing=1.0,
+                    min_area=10,
+                    overlap_ratio=0.5,
+                    min_intersection_voxels=MIN_INTERSECTION_VOXELS,
+                    restrict_to_nearest_component=True,
+                    save_png=False):
 
-    vessel, _, _ = load_bin(vessel_path)
-    tumor , _, _ = load_bin(tumor_path)
-    center, _, _ = load_bin(centerline_path)
+    vessel = vessel_array if vessel_array is not None else load_bin(vessel_path)[0]
+    tumor  = tumor_array  if tumor_array  is not None else load_bin(tumor_path)[0]
+    center = centerline_array if centerline_array is not None else load_bin(centerline_path)[0]
 
     # order the centerline voxels
     path_xyz = ordered_centerline(center)  # (N,3) in z,y,x
@@ -198,7 +267,10 @@ def quantify_angles(vessel_path: Path, tumor_path: Path, centerline_path: Path,
         v2 = (vessel2d > 0.5).astype(np.uint8)
         t2 = (tumor2d  > 0.5).astype(np.uint8)
 
-        results = analyze_slice(v2, t2, min_area=min_area, overlap_ratio=overlap_ratio)
+        results = analyze_slice(v2, t2, min_area=min_area, overlap_ratio=overlap_ratio,
+                                 min_intersection_voxels=min_intersection_voxels,
+                                 restrict_to_nearest_component=restrict_to_nearest_component,
+                                 idx=i)
 
         # choose max angle for this plane (if multiple components)
         if results:
@@ -247,6 +319,10 @@ def main():
     ap.add_argument("--spacing", type=float, default=1.0, help="In-plane sampling step in voxel units")
     ap.add_argument("--min-area", type=int, default=10, help="Min vessel component area (px) on slice")
     ap.add_argument("--overlap-ratio", type=float, default=0.5, help="Intersection/region area ratio to call encasement")
+    ap.add_argument("--min-intersection-voxels", type=int, default=MIN_INTERSECTION_VOXELS,
+                    help="Minimum intersection voxel count to count as real contact (noise filter)")
+    ap.add_argument("--no-nearest-component-restriction", action="store_true",
+                    help="Disable restricting scoring to the vessel component nearest the centerline point")
     ap.add_argument("--save-png", action="store_true", help="Save per-slice PNG overlays")
     args = ap.parse_args()
 
@@ -259,6 +335,8 @@ def main():
         spacing=args.spacing,
         min_area=args.min_area,
         overlap_ratio=args.overlap_ratio,
+        min_intersection_voxels=args.min_intersection_voxels,
+        restrict_to_nearest_component=not args.no_nearest_component_restriction,
         save_png=args.save_png
     )
     print(f"[DONE] Max encasement angle = {max_ang:.2f}° | outputs -> {args.out}")
