@@ -1,3 +1,20 @@
+"""
+Main label-derivation script
+
+For each case:
+  1. Load tumour mask, split into components (filtering noise-sized fragments)
+  2. For each vessel type (SMA, CA, aorta, postcava, veins):
+       - Skeletonize the vessel mask (keep largest connected component first).
+       - For veins = use graph-based branch selection per tumour component.
+       - For single-tube vessels = use diameter-based centreline extraction.
+       - Run angle quantification per tumour component; take the max angle
+         across components for that vessel.
+  3. Take the max angle across all vessel types -> case-level max angle.
+  4. Derive the resectability label: resectable (<=180 deg) vs
+     borderline_or_locally_advanced (>180 deg).
+
+"""
+
 import sys
 import csv
 import numpy as np

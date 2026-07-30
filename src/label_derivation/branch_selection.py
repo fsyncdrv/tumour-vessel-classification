@@ -13,6 +13,29 @@ from scipy.ndimage import label
 from angle_quantify import skeleton_to_graph
 
 
+# ------------------------- Multiple lesion handling -------------------------
+
+def get_tumour_components(tumour_mask: np.ndarray, min_voxels=50):
+    """
+    Split a tumour mask into a list of single-component binary masks.
+
+    Some cases contain multiple disconnected tumour components.
+    For these cases, branch selection/angle quantification should be run once
+    per component, with the maximum resulting angle taken across all
+    components as the case-level result.
+
+    It returns a list of binary masks, one per connected component,
+    each the same shape as the input tumour_mask.
+    """
+    labeled, n_components = label(tumour_mask)
+    components = []
+    for i in range(1, n_components + 1):
+        component = (labeled == i).astype(np.uint8)
+        if component.sum() >= min_voxels:
+            components.append(component)
+    return components
+
+
 # ------------------------- Classify nodes -------------------------
 
 def classify_nodes(G: nx.Graph):
@@ -106,9 +129,14 @@ def get_branch_path_coords(G: nx.Graph, tumour_mask: np.ndarray):
         for neighbor in G.neighbors(tumour_near_node):
             ep = walk_to_structural_node(G, tumour_near_node, neighbor, set(structural_nodes))
             neighbor_endpoints.append(ep)
-        if len(neighbor_endpoints) < 2:
-            raise ValueError("Tumour-nearest node has fewer than 2 branches; cannot form a path.")
-        a, b = neighbor_endpoints[0], neighbor_endpoints[1]
+
+        if len(neighbor_endpoints) >= 2:
+            a, b = neighbor_endpoints[0], neighbor_endpoints[1]
+        elif len(neighbor_endpoints) == 1:
+            a = tumour_near_node
+            b = neighbor_endpoints[0]
+        else:
+            raise ValueError("Tumour-nearest node is isolated; cannot form a path.")
     else:
         a, b = endpoints[0], endpoints[1]
 

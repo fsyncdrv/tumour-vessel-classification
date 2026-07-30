@@ -228,6 +228,7 @@ def analyze_slice(vessel2d, tumor2d, min_area=10, overlap_ratio=0.5,
                 f"inter={inter_area}, "
                 f"angle={ang}"
             )
+            # I've added minor contacts. This was not part of Zhang et al. (2025) original paper
             results.append(("contact", ang))
     return results
 
