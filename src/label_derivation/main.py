@@ -7,14 +7,19 @@ from skimage.morphology import skeletonize
 from scipy import ndimage as ndi
 
 
-LABEL_DERIVATION_DIR = Path(__file__).resolve().parent.parent
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+LABEL_DERIVATION_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(LABEL_DERIVATION_DIR))
 
-from config import ISO_RESAMPLING_DIR
+print("PROJECT_ROOT:", PROJECT_ROOT)
+print("LABEL_DERIVATION_DIR:", LABEL_DERIVATION_DIR)
+assert (PROJECT_ROOT / "config.py").exists(), f"config.py not found at {PROJECT_ROOT}"
+
+from config import ISO_RESAMPLING_DIR, DERIVED_ANGLES_DIR
 from angle_quantify import skeleton_to_graph, ordered_centerline, quantify_angles
-from branch_selection import get_tumor_components, get_branch_path_coords
+from branch_selection import get_tumour_components, get_branch_path_coords
 
 
 TUMOUR_MASK_NAME = "pancreatic_lesion.nii.gz"
@@ -28,8 +33,10 @@ VESSEL_CONFIG = {
 }
 
 RESECTABILITY_THRESHOLD_DEG = 180.0
+TUMOUR_DILATION_MARGIN_MM = 2.0
+ISOTROPIC_SPACING_MM = 0.7
 
-OUT_DIR = PROJECT_ROOT / "outputs" / "label_derivation_results"
+OUT_DIR = DERIVED_ANGLES_DIR
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 FINAL_LABELS_CSV = OUT_DIR / "derived_labels.csv"
@@ -59,12 +66,28 @@ def path_to_mask(path_xyz, shape):
     return mask
 
 
+def dilate_mask(mask, margin_mm, voxel_spacing_mm=0.7):
+    """
+    This dilates a binary mask outward by a physical margin (mm), converting
+    it into a voxel radius using the given isotropic spacing.
+    This is used to capture near-contact (proximity without direct
+    voxel overlap) between tumour and vessel masks. This is consistent with the
+    2mm distance threshold already used in the selected portion of the dataset.
+    """
+    radius_voxels = int(round(margin_mm / voxel_spacing_mm))
+    if radius_voxels <= 0:
+        return mask
+    struct = ndi.generate_binary_structure(3, 1)
+    dilated = ndi.binary_dilation(mask, structure=struct, iterations=radius_voxels)
+    return dilated.astype(np.uint8)
+
+
 # ------------------------- per-vessel processing -------------------------
 
 def process_vessel_for_case(case_id, seg_dir, vessel_key, vessel_cfg,
                              tumor_components, out_dir):
     """
-    Returns the max angle for this vessel across all tumor components,
+    Returns the max angle for this vessel across all tumour components,
     plus which component drove it (index), or (None, None) if vessel
     mask is missing/empty/all components fail.
     """
@@ -84,7 +107,8 @@ def process_vessel_for_case(case_id, seg_dir, vessel_key, vessel_cfg,
     vessel_out_dir = out_dir / case_id / vessel_key
     vessel_out_dir.mkdir(parents=True, exist_ok=True)
 
-
+    # For single-tube vessels, the centreline doesn't depend on the tumour
+    # component. It is computed once and reused across components
     shared_centerline_array = None
     if vessel_cfg["type"] == "single_tube":
         try:
@@ -125,22 +149,23 @@ def process_vessel_for_case(case_id, seg_dir, vessel_key, vessel_cfg,
     return component_angles[best_component_idx], best_component_idx
 
 
-# ------------------------- per-case processing -------------------------
-
 def process_case(case_id):
     seg_dir = ISO_RESAMPLING_DIR / case_id / "segmentations"
     tumor_path = seg_dir / TUMOUR_MASK_NAME
 
     if not tumor_path.exists():
-        return {"case_id": case_id, "status": "failed", "reason": "no tumor mask"}
+        return {"case_id": case_id, "status": "failed", "reason": "no tumour mask"}
 
     full_tumor_mask, _, _ = load_bin(tumor_path)
     if full_tumor_mask.sum() == 0:
-        return {"case_id": case_id, "status": "failed", "reason": "empty tumor mask"}
+        return {"case_id": case_id, "status": "failed", "reason": "empty tumour mask"}
 
-    tumor_components = get_tumor_components(full_tumor_mask)
+    # Dilate the tumour mask by a small physical margin to capture near-contact cases
+    full_tumor_mask = dilate_mask(full_tumor_mask, TUMOUR_DILATION_MARGIN_MM, ISOTROPIC_SPACING_MM)
+
+    tumor_components = get_tumour_components(full_tumor_mask)
     if not tumor_components:
-        return {"case_id": case_id, "status": "failed", "reason": "no tumor components above size threshold"}
+        return {"case_id": case_id, "status": "failed", "reason": "no tumour components above size threshold"}
 
     vessel_max_angles = {}
     vessel_driving_component = {}
@@ -161,7 +186,7 @@ def process_case(case_id):
     return {
         "case_id": case_id,
         "status": "ok",
-        "n_tumor_components": len(tumor_components),
+        "n_tumour_components": len(tumor_components),
         "overall_max_angle": round(overall_max_angle, 2),
         "driving_vessel": driving_vessel,
         "driving_component": vessel_driving_component.get(driving_vessel),
@@ -170,14 +195,12 @@ def process_case(case_id):
     }
 
 
-# ------------------------- run across positive resampled cases -------------------------
-
 def run_pipeline(case_ids):
     results = []
     failures = []
 
     fieldnames = [
-        "case_id", "status", "n_tumor_components", "overall_max_angle",
+        "case_id", "status", "n_tumour_components", "overall_max_angle",
         "driving_vessel", "driving_component", "label",
         "angle_sma", "angle_ca", "angle_aorta", "angle_postcava", "angle_veins",
     ]
@@ -221,5 +244,6 @@ if __name__ == "__main__":
         if distances and min(distances.values()) <= CONTACT_DISTANCE_THRESHOLD_MM
     ])
 
-    print(f"Running the label-derivation pipeline on {len(case_ids)} cases...")
+    print(f"Running full label-derivation pipeline on {len(case_ids)} cases...")
+
     run_pipeline(case_ids)
