@@ -10,8 +10,8 @@ For each case:
        - Run angle quantification per tumour component; take the max angle
          across components for that vessel.
   3. Take the max angle across all vessel types -> case-level max angle.
-  4. Derive the resectability label: resectable (<=180 deg) vs
-     borderline_or_locally_advanced (>180 deg).
+  4. Derive the resectability label: low_vascular_contact (<=180 deg) vs
+     high_vascular_contact (>180 deg).
 
 """
 
@@ -49,7 +49,7 @@ VESSEL_CONFIG = {
     "veins":     {"file": "veins.nii.gz",                       "type": "branching"},
 }
 
-RESECTABILITY_THRESHOLD_DEG = 180.0
+VASCULAR_CONTACT_THRESHOLD_DEG = 180.0
 TUMOUR_DILATION_MARGIN_MM = 2.0
 ISOTROPIC_SPACING_MM = 0.7
 
@@ -59,8 +59,6 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 FINAL_LABELS_CSV = OUT_DIR / "derived_labels.csv"
 FAILED_CASES_LOG = OUT_DIR / "failed_cases.log"
 
-
-# ------------------------- helpers -------------------------
 
 def load_bin(path: Path):
     nii = nib.load(str(path))
@@ -197,8 +195,8 @@ def process_case(case_id):
     overall_max_angle = max(vessel_max_angles.values())
     driving_vessel = max(vessel_max_angles, key=vessel_max_angles.get)
 
-    label = ("resectable" if overall_max_angle <= RESECTABILITY_THRESHOLD_DEG
-              else "borderline_or_locally_advanced")
+    label = ("low_vascular_contact" if overall_max_angle <= VASCULAR_CONTACT_THRESHOLD_DEG
+              else "high_vascular_contact")
 
     return {
         "case_id": case_id,
