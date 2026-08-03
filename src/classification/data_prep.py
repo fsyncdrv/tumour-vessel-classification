@@ -1,3 +1,15 @@
+"""
+Step 1: Data preparation for classification step
+
+Extracts a fixed-size CT crop centred on the tumour, for each case, in
+either 2D (single slice) or 2.5D (stack of N adjacent slices) format.
+
+Input:  raw CT scan (IMAGE_DIR) + tumour mask (LABEL_DIR, for centroid/crop)
+Output: a normalized numpy array per case, ready to feed into a CNN,
+        saved to disk so classification training doesn't need to redo
+        this extraction every epoch.
+"""
+
 import sys
 from pathlib import Path
 import numpy as np
@@ -32,9 +44,10 @@ def load_ct(case_id):
             return nii.get_fdata(), nii.affine
     raise FileNotFoundError(f"CT scan not found for {case_id} in ImageTr or ImageTe")
 
+
 def load_tumor_mask(case_id):
     """
-    Load the ORIGINAL (unresampled) tumor mask. This matches the CT scan's
+    Load the ORIGINAL (unresampled) tumour mask. This matches the CT scan's
     native coordinate space (raw CT scans were never isotropically resampled;
     only the masks used for label derivation were). Using the isotropic mask
     here would give a centroid in the wrong coordinate space relative to the
@@ -44,11 +57,13 @@ def load_tumor_mask(case_id):
     nii = nib.load(str(mask_path))
     return (nii.get_fdata() > 0.5).astype(np.uint8)
 
+
 def window_and_normalize(ct_slice, hu_min=HU_WINDOW_MIN, hu_max=HU_WINDOW_MAX):
     """Clip to HU window, then normalize to [0, 1]."""
     clipped = np.clip(ct_slice, hu_min, hu_max)
     normalized = (clipped - hu_min) / (hu_max - hu_min)
     return normalized.astype(np.float32)
+
 
 def crop_around_center(volume_2d, center_yx, crop_size):
     """Crop a fixed-size square region from a 2D array, centred at center_yx.
@@ -70,24 +85,19 @@ def crop_around_center(volume_2d, center_yx, crop_size):
     return padded
 
 
-# ------------------------- main extraction -------------------------
-
 def extract_case(case_id, mode="2d"):
     """
-    Extract a model-ready crop for one case.
+    Extract a model-ready crop for one case
 
-    mode="2d"   -> returns (CROP_SIZE_XY, CROP_SIZE_XY) single-channel array
-    mode="2.5d" -> returns (N_SLICES_2_5D, CROP_SIZE_XY, CROP_SIZE_XY) array
     """
     ct_volume, _ = load_ct(case_id)
     tumor_mask = load_tumor_mask(case_id)
 
     centroid = center_of_mass(tumor_mask)
-    z_center, y_center, x_center = [int(round(c)) for c in centroid]
-    # print(tumor_mask.shape)
+    y_center, x_center, z_center = [int(round(c)) for c in centroid]
 
     if mode == "2d":
-        ct_slice = ct_volume[z_center, :, :]
+        ct_slice = ct_volume[:, :, z_center]
         ct_slice = window_and_normalize(ct_slice)
         crop = crop_around_center(ct_slice, (y_center, x_center), CROP_SIZE_XY)
         return crop
@@ -96,8 +106,8 @@ def extract_case(case_id, mode="2d"):
         half_n = N_SLICES_2_5D // 2
         slices = []
         for dz in range(-half_n, half_n + 1):
-            z = np.clip(z_center + dz, 0, ct_volume.shape[0] - 1)
-            ct_slice = window_and_normalize(ct_volume[z, :, :])
+            z = np.clip(z_center + dz, 0, ct_volume.shape[2] - 1)
+            ct_slice = window_and_normalize(ct_volume[:, :, z])
             crop = crop_around_center(ct_slice, (y_center, x_center), CROP_SIZE_XY)
             slices.append(crop)
         return np.stack(slices, axis=0)
