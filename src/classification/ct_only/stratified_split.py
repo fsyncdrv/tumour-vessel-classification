@@ -12,7 +12,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 LABEL_DERIVATION_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(LABEL_DERIVATION_DIR))
 
