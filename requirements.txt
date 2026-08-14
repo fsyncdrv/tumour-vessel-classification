@@ -1,0 +1,10 @@
+numpy
+pandas
+scipy
+scikit-image
+scikit-learn
+nibabel
+networkx
+matplotlib
+torch==2.6.0
+torchvision==0.21.0
