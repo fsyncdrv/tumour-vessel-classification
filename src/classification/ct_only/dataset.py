@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+from scipy.ndimage import rotate as scipy_rotate
 
 LABEL_MAP = {"low_vascular_contact": 0, "high_vascular_contact": 1}
 
@@ -54,16 +55,76 @@ class CTVascularContactDataset(Dataset):
 
 # ------------------------- simple augmentation -------------------------
 
-def train_augment(crop):
+# def train_augment(crop):
+#     if np.random.rand() < 0.5:
+#         crop = np.flip(crop, axis=-1).copy()  # horizontal flip
+#     k = np.random.choice([0, 1, 2, 3])
+#     if k > 0:
+#         crop = np.rot90(crop, k=k, axes=(-2, -1)).copy()
+#     return crop
+
+def train_augment(crop, rotation_max_deg=15, brightness_range=0.15,
+                   contrast_range=0.15, noise_std=0.02,
+                   cutout_prob=0.3, cutout_max_frac=0.15):
+    """
+    crop: numpy float32 array, (H, W) for 2D or (C, H, W) for 2.5D,
+          values already in [0, 1].
+    """
+    is_2_5d = crop.ndim == 3
+
+    # ---- flip (existing) ----
     if np.random.rand() < 0.5:
-        crop = np.flip(crop, axis=-1).copy()  # horizontal flip
+        crop = np.flip(crop, axis=-1).copy()
+
+    # ---- 90-degree rotation (existing) ----
     k = np.random.choice([0, 1, 2, 3])
     if k > 0:
         crop = np.rot90(crop, k=k, axes=(-2, -1)).copy()
-    return crop
+
+    # ---- continuous small-angle rotation ----
+    # Fills the corners introduced by rotation with 0 (background HU
+    # after windowing/normalization), consistent with the zero-padding
+    # already used at crop boundaries elsewhere in the pipeline.
+    angle = np.random.uniform(-rotation_max_deg, rotation_max_deg)
+    if is_2_5d:
+        # rotate each slice identically so anatomy stays aligned across
+        # the stack. This is appliesd along the last two axes only.
+        crop = scipy_rotate(crop, angle, axes=(-2, -1), reshape=False,
+                             order=1, mode="constant", cval=0.0)
+    else:
+        crop = scipy_rotate(crop, angle, reshape=False, order=1,
+                             mode="constant", cval=0.0)
+
+    # ---- brightness/contrast jitter ----
+    # Simulates the kind of HU-windowing/scanner-calibration variation
+    # already observed across the dataset's different acquisition eras.
+    brightness = np.random.uniform(-brightness_range, brightness_range)
+    contrast = np.random.uniform(1 - contrast_range, 1 + contrast_range)
+    crop = (crop - 0.5) * contrast + 0.5 + brightness
+
+    # ---- light gaussian noise ----
+    if noise_std > 0:
+        crop = crop + np.random.normal(0, noise_std, size=crop.shape)
+
+    crop = np.clip(crop, 0.0, 1.0).astype(np.float32)
+
+    # ---- coarse dropout / cutout ----
+    # Randomly zero a small rectangular patch. It discourages the model
+    # from relying too heavily on any single localized region
+    if np.random.rand() < cutout_prob:
+        h, w = crop.shape[-2], crop.shape[-1]
+        cut_h = int(np.random.uniform(0.05, cutout_max_frac) * h)
+        cut_w = int(np.random.uniform(0.05, cutout_max_frac) * w)
+        y0 = np.random.randint(0, max(1, h - cut_h))
+        x0 = np.random.randint(0, max(1, w - cut_w))
+        if is_2_5d:
+            crop[:, y0:y0 + cut_h, x0:x0 + cut_w] = 0.0
+        else:
+            crop[y0:y0 + cut_h, x0:x0 + cut_w] = 0.0
+
+    return crop.copy()
 
 
-# ------------------------- local test -------------------------
 
 if __name__ == "__main__":
     LABEL_DERIVATION_DIR = Path(__file__).resolve().parent.parent / "label_derivation"
@@ -73,7 +134,7 @@ if __name__ == "__main__":
 
     from config import DERIVED_ANGLES_DIR
 
-    CROP_DIR_2D = DERIVED_ANGLES_DIR.parent / "classification_inputs" / "2d"
+    CROP_DIR_2D = DERIVED_ANGLES_DIR.parent / "classification_inputs" / "slice_mm_v1" / "2d"
 
     train_ds = CTVascularContactDataset(
         split_csv=DERIVED_ANGLES_DIR / "split_train.csv",
