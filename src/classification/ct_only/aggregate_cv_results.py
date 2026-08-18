@@ -16,9 +16,10 @@ def parse_args():
     p.add_argument("--mode", choices=["2d", "2.5d"], default="2d")
     p.add_argument("--n_folds", type=int, default=5)
     p.add_argument("--seeds", type=int, nargs="+", default=[123, 456])
+    p.add_argument("--crop_version", type=str, default="fov_mm_v4")
     p.add_argument("--base_dir", type=str,
                     default="../../../outputs/classification_runs",
-                    help="Base dir containing {mode}/fold{N}/seed{S}/training_history.json")
+                    help="Base dir containing {crop_version}/{mode}/fold{N}/seed{S}/training_history.json")
     return p.parse_args()
 
 
@@ -35,14 +36,14 @@ def confusion_matrix_metrics(cm):
 
 def main():
     args = parse_args()
-    base = Path(args.base_dir) / args.mode
+    base = Path(args.base_dir) / args.crop_version / args.mode
 
     rows = []
     missing = []
 
     for seed in args.seeds:
         for fold in range(args.n_folds):
-            path = base / f"fold{fold}" / f"seed{seed}" / "training_history_bbox_mm.json"
+            path = base / f"fold{fold}" / f"seed{seed}" / "training_history.json"
             if not path.exists():
                 missing.append(str(path))
                 continue
@@ -122,7 +123,7 @@ def main():
             for metric in ["auprc", "auroc", "precision", "recall", "f1"]
         },
     }
-    out_path = Path("cv_aggregate_summary.json")
+    out_path = Path(f"cv_aggregate_summary_{args.crop_version}_{args.mode}.json")
     with open(out_path, "w") as f:
         json.dump(summary, f, indent=2)
     print(f"\nSaved machine-readable summary to {out_path.resolve()}")
