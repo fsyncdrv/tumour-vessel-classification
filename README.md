@@ -13,11 +13,12 @@ masks available in the PanTS dataset.
 - A graph-based approach was used to extract the centreline of the continuous
   venous segmentation.
 - Tumour–vessel encasement angles were quantified along the vessel centrelines.
-- Cases were assigned binary labels according to a 180° encasement threshold.
+- Cases were assigned binary labels (`high_vascular_contact` or `low_vascular_contact`) according to
+  whether the measured encasement angle was above or below 180°.
 
-The centreline extraction and encasement-angle methodology was adapted from
-Zhang et al. (2026), with modifications made for the PanTS dataset and the
-available vessel segmentations.
+The centreline extraction and encasement-angle methodology for the arterial vessels was adapted from Zhang et al. (2026),
+with modifications made for the PanTS dataset and the available vessel segmentations. A separate graph-based approach was
+developed for extracting the centreline from the veins segmentation mask.
 
 ### Part 2: Deep Learning Classification
 
@@ -45,7 +46,7 @@ classification from pancreatic CT images.
 │       └── Main code for CT preprocessing, model training, and evaluation
 │
 ├── config.py
-│   └── Dataset paths, derived-data paths, and output directory configuration
+│   └── Local dataset paths
 │
 ├── env.sh
 │   └── Environment setup for running the code
