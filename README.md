@@ -9,8 +9,7 @@ The project consists of two main parts.
 Tumour–vessel contact labels were derived from the tumour and vessel segmentation
 masks available in the PanTS dataset.
 
-- 3D centreline extraction was performed for the arterial vessel masks (SMA, CA,
-  postcava, and aorta).
+- 3D centreline extraction was performed for the arterial vessel masks.
 - A graph-based approach was used to extract the centreline of the continuous
   venous segmentation.
 - Tumour–vessel encasement angles were quantified along the vessel centrelines.
@@ -61,4 +60,19 @@ classification from pancreatic CT images.
     └── SLURM script for 2.5D classification experiments on the Hydra cluster
 ```
 
+## References
 
+### Dataset
+
+W. Li, X. Zhou, Q. Chen, et al., "PanTS: The Pancreatic Tumor Segmentation
+Dataset," arXiv:2507.01291 [eess.IV], 2025.
+doi: 10.48550/arXiv.2507.01291.
+
+Dataset repository: https://github.com/MrGiovanni/PanTS
+
+### Methodology
+
+Y. Zhang, H. Zhang, Y. Yang, et al., "A clinically validated 3D deep
+learning approach for quantifying vascular invasion in pancreatic cancer,"
+*npj Digital Medicine*, vol. 9, Art. no. 79, 2026.
+doi: 10.1038/s41746-025-02260-3.
