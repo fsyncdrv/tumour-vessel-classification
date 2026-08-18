@@ -1,5 +1,7 @@
 # Deep Learning Classification of Tumour–Vessel Contact in Pancreatic CT Images
 
+This repository contains the code developed as part of my MSc dissertation. This project investigates deep learning approaches to classifying tumour-vessel contact in pancreatic CT images.
+
 ## Methodology
 
 The project consists of two main parts.
