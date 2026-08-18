@@ -3,6 +3,17 @@ Batch extract 3D centerlines from vessel masks (NIfTI).
 - Binarizes input, optionally keeps largest connected component
 - 3D skeletonization (skimage.morphology.skeletonize_3d)
 - Preserves input folder structure under output directory
+
+Adapted from the centreline extraction methodology described in
+Zhang et al., "A clinically validated 3D deep learning approach for
+quantifying vascular invasion in pancreatic cancer" (2026), with modifications
+for batch processing over the PanTS dataset directory.
+
+Reference:
+Y. Zhang, H. Zhang, Y. Yang, et al., "A clinically validated 3D deep
+learning approach for quantifying vascular invasion in pancreatic
+cancer," npj Digital Medicine, vol. 9, Art. no. 79, 2026,
+doi: 10.1038/s41746-025-02260-3.
 """
 
 import argparse

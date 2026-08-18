@@ -10,14 +10,26 @@ Outputs:
   - CSV with per-point angles and a summary row
   - (optional) PNG slices visualizing vessel/tumor overlap per sampled plane
 
-PATCHED:
+Adapted from the angle quantification methodology described in
+Zhang et al., "A clinically validated 3D deep learning approach for
+quantifying vascular invasion in pancreatic cancer" (2026), with modifications
+for batch processing over the PanTS dataset directory.
+
+Reference:
+Y. Zhang, H. Zhang, Y. Yang, et al., "A clinically validated 3D deep
+learning approach for quantifying vascular invasion in pancreatic
+cancer," npj Digital Medicine, vol. 9, Art. no. 79, 2026,
+doi: 10.1038/s41746-025-02260-3.
+
+
+Modifications added:
   1. Minimum intersection-area threshold before computing an angle at all.
-  2. wrap_angle_deg now picks the two boundary points that are FARTHEST apart
+  2. wrap_angle_deg now picks the two boundary points that are farthest apart
      (true chord extremes), instead of pts[0]/pts[-1] (scan-order artifact).
   3. analyze_slice restricts scoring to the connected component nearest the
-     plane center (i.e. nearest the centerline point), ignoring unrelated
+     plane centre (i.e. nearest the centreline point), ignoring unrelated
      components caught in the same reslice window (relevant for branching
-     vessels like veins where multiple branches can appear in one plane).
+     vessels like veins where multiple branches can appear in one plane)
 """
 
 import argparse
@@ -75,7 +87,7 @@ def skeleton_to_graph(skel: np.ndarray) -> nx.Graph:
 
 def pick_endpoints(G: nx.Graph):
     start = next(iter(G.nodes))
-    # farthest twice → approximate graph diameter endpoints
+    # farthest twice --> approximate graph diameter endpoints
     lengths = nx.single_source_dijkstra_path_length(G, start, weight='weight')
     a = max(lengths, key=lengths.get)
     lengths = nx.single_source_dijkstra_path_length(G, a, weight='weight')
