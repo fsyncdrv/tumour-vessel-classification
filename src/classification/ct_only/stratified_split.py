@@ -1,9 +1,27 @@
 """
-Stratified train/val/test split for the classification cohort.
+Stratified train/val/test split for the classification task.
 
 Splits derived_labels.csv into train/val/test sets while preserving the
 class ratio (low_vascular_contact vs high_vascular_contact) in each
 subset
+
+
+Result:
+Loaded 1033 cases
+low_vascular_contact     868
+high_vascular_contact    165
+
+Train_split: 723 cases
+low_vascular_contact     608
+high_vascular_contact    115
+
+Val_split: 155 cases
+low_vascular_contact     130
+high_vascular_contact     25
+
+Test_split: 155 cases
+low_vascular_contact     130
+high_vascular_contact     25
 """
 
 import sys

@@ -95,7 +95,7 @@ def evaluate(model, loader, device, mode, criterion):
 
     return {
         "loss": avg_loss,
-        "accuracy": accuracy,  ## This woont do much tbh
+        "accuracy": accuracy,  ## This shouldn't help much
         "auroc": auroc, ## Literature points at relying more on using this
         "auprc": auprc, ## And this
         "f1": f1,  ## And this
@@ -197,7 +197,6 @@ def main():
         if args.balance_method == "none":
             print("No class imbalance handling (loss unweighted, no sampler).")
 
-    # ------------------------- model -------------------------
 
     input_channels = 3 if args.mode == "2d" else 5
     model = build_resnet50(input_channels=input_channels, num_classes=2, freeze_until=args.freeze_until)
@@ -218,7 +217,6 @@ def main():
         patience=8,
     )
 
-    # ------------------------- training loop -------------------------
     best_val_auroc = -1.0
     best_val_confusion_matrix = None
     best_epoch = None

@@ -1,13 +1,14 @@
 """
 Stratified K-fold cross-validation split.
 
-Keeps a held-out TEST set completely separate (same 15%,
-same random_state as in stratifed_split.py)
+This step was added to address the small positive group (16%).
 
-The remaining 85% (original TRAIN+VAL pool) is split into K stratified
-folds. For each fold i, that fold becomes the val set and the other
-K-1 folds become the train set. It producing split_train_fold{i}.csv
+Keeps a held-out TEST set completely separate (with same 15%, same random_state as in stratifed_split.py)
+
+The remaining 85% (original TRAIN+VAL pool) is split into K stratified folds. For each fold i,
+that fold becomes the val set and the other K-1 folds become the train set. It producing split_train_fold{i}.csv
 and split_val_fold{i}.csv for i in 0..K-1.
+
 """
 
 import sys

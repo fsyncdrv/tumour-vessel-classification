@@ -4,6 +4,9 @@ ResNet-50 model setup for the CT vascular-contact classification task.
 Supports both 2D (single-slice, replicated to 3 channels) and 2.5D
 (5-slice stack, used directly as 5 input channels) input formats.
 
+Due to the small dataset and class imbalance (16% positive class), a pretrained
+resnet-50 is used.
+
 """
 
 import torch
@@ -12,26 +15,10 @@ import torchvision.models as models
 
 
 def build_resnet50(input_channels=3, num_classes=2, freeze_until="layer4"):
-    """
-    Build a ResNet-50 model adapted for the given number of input channels,
-    with a binary (or num_classes) classification head, and a configurable
-    freezing strategy for transfer learning.
+    ## The first conv layer is replaced to accept the input channel count used here
+    # (3 for 2D, 5 for 2.5D) since the pretrained layer expects 3-channel RGB.
 
-    input_channels:
-        3 for 2D (assumes the caller replicates the single CT channel to 3)
-        5 for 2.5D (5-slice stack used directly as channels)
-
-    freeze_until:
-        "layer4" -> freeze everything except layer4 and the final fc layer
-                    (a reasonable middle ground for a dataset this size)
-        "none"   -> fine-tune the entire network (higher overfitting risk,
-                    only recommended if freeze_until="layer4" underperforms)
-        "all"    -> freeze everything except the final fc layer (fastest,
-                    least adaptable, good baseline/sanity-check option)
-    """
     model = models.resnet50(weights='IMAGENET1K_V2')
-
-    # ------------------------- adapt first layer for input channels -------------------------
 
     if input_channels != 3:
         old_conv1 = model.conv1
@@ -43,27 +30,18 @@ def build_resnet50(input_channels=3, num_classes=2, freeze_until="layer4"):
             padding=old_conv1.padding,
             bias=(old_conv1.bias is not None),
         )
-        # initialize new conv1 weights by averaging the pretrained RGB
-        # weights across the channel dimension, then repeating for the
-        # new channel count -- a common, reasonable way to preserve some
-        # of the pretrained low-level feature detectors rather than
-        # starting from pure random initialization.
         with torch.no_grad():
             avg_weight = old_conv1.weight.mean(dim=1, keepdim=True)  # (out_ch, 1, k, k)
             new_conv1.weight[:] = avg_weight.repeat(1, input_channels, 1, 1)
         model.conv1 = new_conv1
 
-    # ------------------------- replace final classification layer -------------------------
     # Added dropout before the final linear layer as a regularization measure,
     # given the overfitting observed in the first training run (train loss
     # dropped to ~0.08 while val loss rose to ~1.8 over 19 epochs).
-
     model.fc = nn.Sequential(
         nn.Dropout(p=0.5),
         nn.Linear(model.fc.in_features, num_classes),
     )
-
-    # ------------------------- freezing strategy -------------------------
 
     if freeze_until == "all":
         for name, param in model.named_parameters():
@@ -75,6 +53,7 @@ def build_resnet50(input_channels=3, num_classes=2, freeze_until="layer4"):
             if "layer4" not in name and "fc" not in name:
                 param.requires_grad = False
 
+    # added layer3_layer4 because it gave better results when testing
     elif freeze_until == "layer3_layer4":
         for name, param in model.named_parameters():
             if "layer3" not in name and "layer4" not in name and "fc" not in name:
@@ -90,10 +69,6 @@ def build_resnet50(input_channels=3, num_classes=2, freeze_until="layer4"):
 
 
 def prepare_2d_batch(batch_1channel):
-    """
-    Replicate a single-channel (B, 1, H, W) batch to 3 channels (B, 3, H, W),
-    matching what ResNet-50's pretrained first layer expects for 2D input.
-    """
     return batch_1channel.repeat(1, 3, 1, 1)
 
 
@@ -102,8 +77,6 @@ def count_trainable_params(model):
     total = sum(p.numel() for p in model.parameters())
     return trainable, total
 
-
-# ------------------------- local test -------------------------
 
 if __name__ == "__main__":
     print("=== Testing 2D model (3-channel input) ===")
@@ -127,3 +100,14 @@ if __name__ == "__main__":
     print(f"Dummy input shape: {dummy_5channel.shape}")
     output = model_2_5d(dummy_5channel)
     print(f"Output shape: {output.shape}  (should be [4, 2])")
+
+
+# === Testing 2D model (3-channel input) ===
+# Trainable params: 14,968,834 / 23,512,130 (63.7%)
+# Dummy input shape: torch.Size([4, 3, 224, 224])
+# Output shape: torch.Size([4, 2])  (should be [4, 2])
+
+# === Testing 2.5D model (5-channel input) ===
+# Trainable params: 14,968,834 / 23,518,402 (63.6%)
+# Dummy input shape: torch.Size([4, 5, 224, 224])
+# Output shape: torch.Size([4, 2])  (should be [4, 2])
