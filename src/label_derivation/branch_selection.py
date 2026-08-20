@@ -1,11 +1,11 @@
 """
-Find the single skeleton branch (segment) nearest a tumour mask,
-within a larger branching vessel skeleton graph.
+The PanTS dataset does not have per-vessel labels for the veins. As a result, it is
+not possible to use Zhang et al's centreline approach which assumes you already know
+which vessel is being measured.
 
-This is a replacement for when the vessel is
-a branching tree (e.g. veins) rather than a single tube.
+Since the veins segmentation mask is a continous structure with multiple branches, we first need to determine
+which branch is more connected to the tumour before running the angle quantification.
 """
-
 import numpy as np
 import networkx as nx
 from scipy.spatial import cKDTree
@@ -13,20 +13,10 @@ from scipy.ndimage import label
 from angle_quantify import skeleton_to_graph
 
 
-# ------------------------- Multiple lesion handling -------------------------
-
+## Determine how many tumour blobs are present on a mask. (During a check (isotropic_resampling.ipynb),
+# it was discovered that some tumour masks were showing multiple lesions).
+# This function was added to account for that
 def get_tumour_components(tumour_mask: np.ndarray, min_voxels=50):
-    """
-    Split a tumour mask into a list of single-component binary masks.
-
-    Some cases contain multiple disconnected tumour components.
-    For these cases, branch selection/angle quantification should be run once
-    per component, with the maximum resulting angle taken across all
-    components as the case-level result.
-
-    It returns a list of binary masks, one per connected component,
-    each the same shape as the input tumour_mask.
-    """
     labeled, n_components = label(tumour_mask)
     components = []
     for i in range(1, n_components + 1):
@@ -36,24 +26,19 @@ def get_tumour_components(tumour_mask: np.ndarray, min_voxels=50):
     return components
 
 
-# ------------------------- Classify nodes -------------------------
-
+## degree 1 = end point
+## degree 2 = middle points
+## degree >= 3 = connection with another branch
+## This keeps only 1 and 3 to determine the shape of the veins structure
 def classify_nodes(G: nx.Graph):
-    """
-    Returns:
-        structural_nodes: list of nodes with degree != 2
-                           (tips = degree 1, branch points = degree >= 3)
-    """
     structural_nodes = [n for n in G.nodes if G.degree(n) != 2]
     return structural_nodes
 
 
-# ------------------------- Nearest node to tumour -------------------------
-
 def nearest_skeleton_node_to_tumour(G: nx.Graph, tumour_mask: np.ndarray):
     """
     Find the skeleton graph node closest to any tumour voxel.
-    Uses a KD-tree for speed (tumour masks can have thousands of voxels).
+    Uses a KD-tree to find nearby points faster
     """
     tumour_coords = np.argwhere(tumour_mask > 0)
     if len(tumour_coords) == 0:
@@ -73,12 +58,10 @@ def nearest_skeleton_node_to_tumour(G: nx.Graph, tumour_mask: np.ndarray):
     return best_node, best_dist
 
 
-# ------------------------- Walk outward to structural nodes -------------------------
-
 def walk_to_structural_node(G: nx.Graph, start_node, next_node, structural_set):
     """
-    Walk along the graph starting at start_node -> next_node,
-    continuing until a structural node (tip or branch point) is reached.
+    Moves outward from the tumour-nearest point until it reaches the nearest
+    endpoint or connection to another branch.
     Returns the structural node found.
     """
     prev, curr = start_node, next_node
@@ -92,12 +75,7 @@ def walk_to_structural_node(G: nx.Graph, start_node, next_node, structural_set):
 
 def enclosing_segment_endpoints(G: nx.Graph, tumour_near_node, structural_nodes):
     """
-    Given the node closest to the tumour, find the two structural nodes
-    (tip or branch point) that bound the segment it lies on.
-
-    Handles the edge case where tumour_near_node is itself structural
-    (e.g. the tumour sits right at a bifurcation) by just returning
-    that node twice
+    Returns the endpoints of the branch closest to tumour
     """
     structural_set = set(structural_nodes)
 
@@ -112,16 +90,13 @@ def enclosing_segment_endpoints(G: nx.Graph, tumour_near_node, structural_nodes)
     return endpoints
 
 
-# ------------------------- Extract path coords -------------------------
 
 def get_branch_path_coords(G: nx.Graph, tumour_mask: np.ndarray):
     """
-    Main entry point. Returns (N,3) array of voxel coords (z,y,x)
-    for the single branch nearest the tumour
+    Finds the vessel branch nearestr to tumour and returns its (z,y,x) coordinates
     """
     structural_nodes = classify_nodes(G)
     tumour_near_node, dist = nearest_skeleton_node_to_tumour(G, tumour_mask)
-
     endpoints = enclosing_segment_endpoints(G, tumour_near_node, structural_nodes)
 
     if endpoints is None:
@@ -129,7 +104,6 @@ def get_branch_path_coords(G: nx.Graph, tumour_mask: np.ndarray):
         for neighbor in G.neighbors(tumour_near_node):
             ep = walk_to_structural_node(G, tumour_near_node, neighbor, set(structural_nodes))
             neighbor_endpoints.append(ep)
-
         if len(neighbor_endpoints) >= 2:
             a, b = neighbor_endpoints[0], neighbor_endpoints[1]
         elif len(neighbor_endpoints) == 1:
