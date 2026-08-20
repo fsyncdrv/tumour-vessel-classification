@@ -70,8 +70,7 @@ def pad_range_to_target(a_range, spacing, target_size_mm, axis_len_vox):
     new_hi = int(round(center + half))
 
     # clip to volume bounds, shifting the window if it would go
-    # out-of-bounds on one side (keeps the full target size where
-    # possible rather than silently shrinking at the edge)
+    # out-of-bounds on one side
     if new_lo < 0:
         new_hi += -new_lo
         new_lo = 0
