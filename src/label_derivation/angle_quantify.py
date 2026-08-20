@@ -23,13 +23,11 @@ doi: 10.1038/s41746-025-02260-3.
 
 
 Modifications added:
-  1. Minimum intersection-area threshold before computing an angle at all.
-  2. wrap_angle_deg now picks the two boundary points that are farthest apart
-     (true chord extremes), instead of pts[0]/pts[-1] (scan-order artifact).
-  3. analyze_slice restricts scoring to the connected component nearest the
-     plane centre (i.e. nearest the centreline point), ignoring unrelated
-     components caught in the same reslice window (relevant for branching
-     vessels like veins where multiple branches can appear in one plane)
+1. Angle computation is skipped if the intersection area is below a min threshold
+2. wrap_angle_deg was updated to use the two farthest apart boundary points instead of
+the first and last points form the countour trace
+3. analyze_slice only keeps the connected component nearest to the centreline point.
+This is to cater to the branching issue of the veins mask.
 """
 
 import argparse

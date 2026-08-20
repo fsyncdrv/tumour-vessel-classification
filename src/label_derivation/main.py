@@ -1,17 +1,19 @@
 """
 Main label-derivation script
 
-For each case:
-  1. Load tumour mask, split into components (filtering noise-sized fragments)
-  2. For each vessel type (SMA, CA, aorta, postcava, veins):
-       - Skeletonize the vessel mask (keep largest connected component first).
-       - For veins = use graph-based branch selection per tumour component.
-       - For single-tube vessels = use diameter-based centreline extraction.
-       - Run angle quantification per tumour component; take the max angle
-         across components for that vessel.
-  3. Take the max angle across all vessel types -> case-level max angle.
-  4. Derive the resectability label: low_vascular_contact (<=180 deg) vs
-     high_vascular_contact (>180 deg).
+It does the following:
+For each case,
+1. dilate the tumour mask by 2mm to catch near-contact cases then split into components
+2. For each vessel type the mask is skeletonised then
+   2.1 Centreline extraction is run on (SMA, CA, aorta and postcava)
+   2.2 Branch selection is run on veins.
+3. Angle is computed per tumour component
+4. Take the max angle across componets to get vessel's angle
+5. Take the max across all five vessels give the case-level angle. This means only the single worst
+vessel contact is captured not how many vessels are involved. This is a simplication compared to
+clinical assessment where multiple vessel contacts would be considered.
+6. The case is then labelled as either low_vascular_contact or high_vascular_contact using a 180 degree
+threshold.
 
 """
 
@@ -65,6 +67,8 @@ def load_bin(path: Path):
     data = (nii.get_fdata() > 0.5).astype(np.uint8)
     return data, nii.affine, nii.header
 
+## some segmentation masks have some disconnected noise. this function was
+## added to only keep the single largest connected component during skeletonisation
 def keep_lcc(mask):
     lab, n = ndi.label(mask, structure=np.ones((3, 3, 3), dtype=np.uint8))
     if n <= 1:
@@ -74,21 +78,16 @@ def keep_lcc(mask):
     return (lab == np.argmax(counts)).astype(np.uint8)
 
 def path_to_mask(path_xyz, shape):
-    """Rasterize a coordinate path back into a binary centerline mask."""
     mask = np.zeros(shape, dtype=np.uint8)
     for p in path_xyz:
         mask[int(p[0]), int(p[1]), int(p[2])] = 1
     return mask
 
 
+# To ensure both overlap and near vessel contact are taken into consideration
+## 2mm is used to match the contact threshold alreadyh used to define the dataset's
+# vascular-contact labels
 def dilate_mask(mask, margin_mm, voxel_spacing_mm=0.7):
-    """
-    This dilates a binary mask outward by a physical margin (mm), converting
-    it into a voxel radius using the given isotropic spacing.
-    This is used to capture near-contact (proximity without direct
-    voxel overlap) between tumour and vessel masks. This is consistent with the
-    2mm distance threshold already used in the selected portion of the dataset.
-    """
     radius_voxels = int(round(margin_mm / voxel_spacing_mm))
     if radius_voxels <= 0:
         return mask
@@ -97,10 +96,7 @@ def dilate_mask(mask, margin_mm, voxel_spacing_mm=0.7):
     return dilated.astype(np.uint8)
 
 
-# ------------------------- per-vessel processing -------------------------
-
-def process_vessel_for_case(case_id, seg_dir, vessel_key, vessel_cfg,
-                             tumor_components, out_dir):
+def process_vessel_for_case(case_id, seg_dir, vessel_key, vessel_cfg, tumor_components, out_dir):
     """
     Returns the max angle for this vessel across all tumour components,
     plus which component drove it (index), or (None, None) if vessel
