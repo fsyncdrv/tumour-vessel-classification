@@ -1,25 +1,20 @@
 """
-bbox_size_capped_v1: a size-controlled variant of bbox_mm_v1.
+bbox_size_capped_v1: (keep bbox_mm_v1 box position but add fixed size)
 
-check_bbox_size_shortcut.py showed that bbox_mm_v1's crop size varies
-from case to case, and that size alone (with no image content at all)
-predicts the label almost as well as the trained model. This suggests
-part of bbox_mm_v1's performance may come from a zoom shortcut
-rather than genuine learning from the anatomy.
+This is the third crop strategy attempted in this thesis.
 
-This version keeps bbox_mm_v1's box position and content exactly the
-same (same tumour+vessel region, same margin). The only change is
-that every box is padded out to a common fixed physical size
-(TARGET_SIZE_MM, chosen from the p90 of bbox_mm_v1's own box
-sizes; see find_bbox_target_size.py) before resizing to CROP_SIZE_XY.
-This removes the zoom cue while still keeping each crop centred
-on the case-specific tumour and vessel.
+check_bbox_size_shortcut.py showed that bbox_mm_v1's crop size varies from case to case,
+and that size alone predicts the label almost as well as the trained model. This suggests part of
+bbox_mm_v1's performance may come from a zoom shortcut rather than genuine learning from the anatomy.
 
-If a case's original box is already larger than TARGET_SIZE_MM on a
-given axis, it is left as-is rather than cropped down, since shrinking
-could cut off tumour or vessel content that bbox_mm_v1 deliberately
-included. These oversized cases are logged separately (n_oversized) so
-their remaining size variability can be checked afterward.
+This version keeps bbox_mm_v1's box position and content exactly the same (same tumour+vessel region,
+same margin). The only change is that every box is padded out to a common fixed physical size
+(TARGET_SIZE_MM, chosen from the p90 of bbox_mm_v1's own box sizes; see find_bbox_target_size.py) before resizing to
+CROP_SIZE_XY. This removes the zoom cue while still keeping each crop centred on the case-specific tumour and vessel.
+
+If a case's original box is already larger than TARGET_SIZE_MM on a given axis, it is left as-is rather
+than cropped down, since shrinking could cut off tumour or vessel content that bbox_mm_v1 deliberately
+included.
 """
 
 import sys

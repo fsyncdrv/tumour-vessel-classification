@@ -1,13 +1,15 @@
 """
-Step 1: Data preparation for classification step
+fov_mm_v4 Baseline crop (centred on tumour)
 
-Extracts a fixed-size CT crop centred on the tumour, for each case, in
-either 2D (single slice) or 2.5D (stack of N adjacent slices) format.
+Due to the differences in spacing across the dataset (confirmed to vary between 0.7mm and 2.5mm)
+a fixed physical size was chosen over a fixed voxel count for a more consistent representation
+of anatomical relationships within the data.
+A fixed-size crop of the CT scan, centred on the tumour centroid, is extracted in both 2D and 2.5D
+format.
+Then, each case's normalised numpy array is saved to disk so this extraction is not repeated every
+epoch during training
 
-Input:  raw CT scan (IMAGE_DIR) + tumour mask (LABEL_DIR, for centroid/crop)
-Output: a normalized numpy array per case, ready to feed into a CNN,
-        saved to disk so classification training doesn't need to redo
-        this extraction every epoch.
+This is the baseline of three final crops strategies compared in this thesis
 """
 
 import sys
@@ -26,7 +28,7 @@ from config import IMAGE_DIR, LABEL_DIR, DERIVED_ANGLES_DIR, IMAGE_TE_DIR
 
 TUMOUR_MASK_NAME = "pancreatic_lesion.nii.gz"
 
-# Output crop is always resized to this pixel size, regardless of the
+# Output crop is always resized to this crop size, regardless of the
 # physical field-of-view used to extract it.
 CROP_SIZE_XY = 224          # this number was chosen because it matches typical ResNet input size
 
@@ -56,22 +58,13 @@ def load_ct(case_id):
 
 
 def load_tumor_mask(case_id):
-    """
-    Load the ORIGINAL (unresampled) tumour mask. This matches the CT scan's
-    native coordinate space (raw CT scans were never isotropically resampled;
-    only the masks used for label derivation were). Using the isotropic mask
-    here would give a centroid in the wrong coordinate space relative to the
-    raw CT, causing incorrect crop locations.
-    """
     mask_path = LABEL_DIR / case_id / "segmentations" / TUMOUR_MASK_NAME
     nii = nib.load(str(mask_path))
     return (nii.get_fdata() > 0.5).astype(np.uint8)
 
 
 def get_axis_spacings(affine):
-    """Return voxel spacing (mm) for each of the 3 array axes, derived
-    from the affine's column norms (rotation-invariant, no ordering
-    assumption about which axis is 'anatomically' which)."""
+    """Return voxel spacing (mm) for each of the 3 array axes"""
     return [np.linalg.norm(affine[:3, i]) for i in range(3)]
 
 
@@ -80,21 +73,20 @@ def get_slice_axis(affine, dominance_ratio=1.5):
     Return the array axis that is actually the slice-selection
     (through-plane, coarsest-spacing) axis.
 
-    We cannot assume this is always axis 2. A dataset-wide check found
+    BUG FIX: We cannot assume this is always axis 2. A dataset check found
     159/1033 cases (mostly older/legacy acquisitions, e.g. a 2006 scan
     with only 69 voxels and 5mm spacing on axis 1) where axis 2 is not
     the coarsest axis. For those cases, slicing ct_volume[:, :, z]
     cuts through the wrong plane entirely.
 
-    However, naively taking argmax(spacing) is also wrong on its own:
-    for near-isotropic modern scans (e.g. 0.72/0.72/0.75mm), the three
+    Also, taking argmax(spacing) is not reliable. In some cases, the three
     spacings differ only by scanner rounding noise, and argmax will
     confidently declare whichever axis is nominally 0.01mm larger as
     the slice axis. This silently mis-slicing a case that was actually fine
     under the plain axis-2 default (confirmed: PanTS_00001876 regressed
     under a pure-argmax version of this function).
 
-    So: only override the axis-2 default when the coarsest axis is
+    Only override the axis-2 default when the coarsest axis is
     clearly dominant. This catches genuine legacy thick-slice scans
     (5mm vs 1.5mm = 3.2x) without misfiring on near-isotropic ones.
     """
@@ -125,9 +117,8 @@ def get_inplane_axes_and_spacing(affine, slice_axis=None):
     silently corrupted a subset of fov_mm_v3 crops too, since that
     pipeline never surfaced an error for the same inconsistency.
 
-    Now takes the already-computed slice_axis as a parameter (or calls
-    get_slice_axis itself if not provided) so there is exactly one
-    source of truth for which axis is the slice axis, everywhere.
+    Updated to take the already-computed slice_axis as a parameter so there
+    is exactly one source of truth for which axis is the slice axis everywhere.
     """
     if slice_axis is None:
         slice_axis = get_slice_axis(affine)
@@ -198,7 +189,7 @@ def extract_case(case_id, mode="2d"):
 
     The slice-selection axis (which array axis we slide along for 2.5D,
     and which single index we pick for 2D) is determined per case via
-    get_slice_axis, not assumed to always be axis 2 ** see that function's
+    get_slice_axis, not assumed to always be axis 2 ** see get_slice_axis
     docstring for why (159/1033 cases violate that assumption).
     """
     ct_volume, affine = load_ct(case_id)
@@ -247,7 +238,6 @@ def extract_case(case_id, mode="2d"):
         raise ValueError(f"Unknown mode: {mode}")
 
 
-# ------------------------- batch run -------------------------
 
 def run_extraction(case_ids, mode="2d"):
     out_subdir = OUT_DIR / mode

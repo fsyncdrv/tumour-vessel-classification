@@ -1,22 +1,19 @@
 """
-bbox_mm_v1: crop extraction sized to fit the tumour and its driving vessel.
+bbox_mm_v1: (tumour + driving-vessel bounding box crop)
 
-Earlier crops used a fixed 150mm x 150mm window centred on the tumour
-(fov_mm_v4). This version instead draws a box around exactly the
-tumour and the vessel most responsible for its label (the
-"driving vessel", from derived_labels.csv), with a small margin
-added around both. The box size therefore varies per case instead
-of being fixed to show the model less irrelevant background
-and more of the anatomy that actually matters for the label.
+This is the second crop strategy attempted in this thesis.
 
-Slice-axis and in-plane logic is reused directly from data_prep.py
-(get_slice_axis, get_inplane_axes_and_spacing) rather than
-reimplemented, since that logic is already validated.
+This version draws a box around exactly the tumour and the vessel most responsible for its label
+(the "driving vessel", from derived_labels.csv), with a small margin added around both.
+The box size therefore varies per case instead of being fixed to show the model less irrelevant
+background and more of the anatomy that actually matters for the label.
 
-Vessel masks are loaded from LABEL_DIR, the same raw CT coordinate
-space as the tumour mask and not from ISO_RESAMPLING_DIR, which is a
-separate resampled space used only for angle/centreline computation
-and would not line up correctly with the raw CT here.
+Slice-axis and in-plane logic is reused directly from data_prep.py (get_slice_axis, get_inplane_axes_and_spacing)
+rather than reimplemented, since that logic is already validated.
+
+Vessel masks are loaded from LABEL_DIR, the same raw CT coordinate space as the tumour mask
+and not from ISO_RESAMPLING_DIR, which is a separate resampled space used only for centreline and
+angle computation and would not line up correctly with the raw CT here.
 """
 
 import sys
@@ -33,7 +30,7 @@ sys.path.insert(0, str(LABEL_DERIVATION_DIR))
 
 from config import IMAGE_DIR, LABEL_DIR, DERIVED_ANGLES_DIR, IMAGE_TE_DIR
 
-# Reuse the validated axis-aware helpers from the fov_mm_v3 pipeline.
+# Reused the validated axis-aware helpers from the fov_mm_v4 pipeline.
 from label_derivation.data_prep import (
     load_ct, window_and_normalize, get_slice_axis,
     get_inplane_axes_and_spacing, resize_to_output, CROP_SIZE_XY,
@@ -65,14 +62,11 @@ def load_mask(path: Path):
 
 
 def load_tumor_mask(case_id):
-    """Same as data_prep.py's version: unresampled space, matching raw CT"""
     mask_path = LABEL_DIR / case_id / "segmentations" / TUMOUR_MASK_NAME
     return load_mask(mask_path)
 
 
 def load_driving_vessel_mask(case_id, driving_vessel):
-    """unresampled space vessel mask w/ same coordinate space as
-    the tumour mask and raw CT"""
     filename = VESSEL_FILENAMES.get(driving_vessel)
     if filename is None:
         return None
@@ -87,8 +81,7 @@ def bbox_from_mask_union(masks, margin_voxels_per_axis):
     """
     Given a list of 3D binary masks (same shape), return the bounding
     box (min, max) per axis spanning the union of all nonzero voxels
-    across all masks, expanded by margin_voxels_per_axis (a 3-tuple).
-
+    across all masks, expanded by margin_voxels_per_axis
     Returns None if all masks are empty.
     """
     union = np.zeros_like(masks[0])
@@ -226,7 +219,6 @@ def extract_case(case_id, driving_vessel, mode="2d"):
 
     else:
         raise ValueError(f"Unknown mode: {mode}")
-
 
 
 def run_extraction(df, mode="2d"):

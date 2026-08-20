@@ -1,10 +1,12 @@
 """
-This tests whether the crop's physical size alone, with no image
-content at all, can predict the label. A simple logistic regression is
-trained on just the box dimensions (width, height, area, aspect
-ratio). If it scores well above the majority-class baseline, that's
-evidence the model's real performance could partly come from crop
-zoom level rather than genuine anatomical content.
+This tests whether the crop's physical size alone, with no image content at all, can predict the label.
+A simple logistic regression is trained on just the box dimensions (width, height, area, aspect
+ratio). If it scores well above the majority-class baseline, that's evidence the model's real performance
+could partly come from crop zoom level rather than genuine anatomical content.
+
+
+Result: 5-fold CV AUROC of 0.768 +/- 0.152 (majority-class baseline accuracy 0.840), close to bbox_mm_v1's own AUROC (0.78).
+It is possible tthen that bbox_mm_v1's performance oculd be due to size rather than the featuresw in the image
 """
 
 import sys
