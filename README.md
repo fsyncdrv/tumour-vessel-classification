@@ -77,5 +77,5 @@ Dataset repository: https://github.com/MrGiovanni/PanTS
 
 Y. Zhang, H. Zhang, Y. Yang, et al., "A clinically validated 3D deep
 learning approach for quantifying vascular invasion in pancreatic cancer,"
-*npj Digital Medicine*, vol. 9, Art. no. 79, 2026.
+*npj Digital Medicine*, vol. 9, Art. no. 79, 2025.
 doi: 10.1038/s41746-025-02260-3.
